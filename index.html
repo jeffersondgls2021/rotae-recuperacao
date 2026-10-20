@@ -46,6 +46,14 @@
       <h1 id="titulo">Criar uma nova senha</h1>
       <p>Use o link de recuperação que chegou ao seu e-mail para proteger sua conta Rotaê.</p>
       <div id="status" class="status" role="status" aria-live="polite">Verificando o link de recuperação…</div>
+      <form id="otp-form" hidden>
+        <p>Se o link falhar, você pode recuperar o acesso usando o código do e-mail de recuperação da Rotaê.</p>
+        <label for="recovery-email">E-mail da conta</label>
+        <input id="recovery-email" name="recovery-email" type="email" autocomplete="email" required placeholder="Seu e-mail cadastrado" />
+        <label for="recovery-code">Código de recuperação recebido no e-mail</label>
+        <input id="recovery-code" name="recovery-code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" minlength="6" maxlength="8" required placeholder="Código de 6 a 8 dígitos" />
+        <button id="verify-code" type="submit">Validar código</button>
+      </form>
       <form id="form" hidden>
         <label for="password">Nova senha</label>
         <input id="password" name="password" type="password" autocomplete="new-password" minlength="10" required placeholder="Mínimo de 10 caracteres" />
@@ -55,7 +63,7 @@
       </form>
       <p id="success" hidden>Você já pode abrir a Rotaê e entrar com seu e-mail e sua nova senha.</p>
     </section>
-    <footer class="foot">Página de recuperação Rotaê • A senha é enviada diretamente ao Supabase, nunca ao GitHub.</footer>
+    <footer class="foot">Página de recuperação Rotaê v2 • Sua senha é enviada diretamente ao Supabase, nunca ao GitHub.</footer>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
@@ -66,6 +74,10 @@
 
     const status = document.getElementById('status');
     const form = document.getElementById('form');
+    const otpForm = document.getElementById('otp-form');
+    const recoveryEmail = document.getElementById('recovery-email');
+    const recoveryCode = document.getElementById('recovery-code');
+    const verifyCodeButton = document.getElementById('verify-code');
     const submit = document.getElementById('submit');
     const success = document.getElementById('success');
     const password = document.getElementById('password');
@@ -82,46 +94,85 @@
       status.className = `status ${kind}`.trim();
     }
 
+    function validRecoverySession(session) {
+      if (!session || recoveryValidated) return;
+      recoveryValidated = true;
+      otpForm.hidden = true;
+      form.hidden = false;
+      message('Acesso confirmado. Escolha sua nova senha com pelo menos 10 caracteres.', 'ok');
+      // Esconder os tokens da URL depois que forem reconhecidos.
+      if (history.replaceState) history.replaceState(null, document.title, location.pathname);
+    }
+
     async function start() {
       if (SUPABASE_PUBLISHABLE_KEY.startsWith('COLE_AQUI_')) {
-        message('A página ainda precisa da chave pública do Supabase. Avise o responsável pela Rotaê.', 'error');
+        message('Esta página ainda precisa ser configurada com a chave pública do Supabase.', 'error');
         return;
       }
       if (!window.supabase || !window.supabase.createClient) {
         message('Não foi possível carregar a conexão de segurança. Verifique sua internet e atualize a página.', 'error');
         return;
       }
-      if (linkError) {
-        message('Esse link expirou ou é inválido. Solicite um novo e-mail de recuperação.', 'error');
-        return;
-      }
-      if (!cameFromRecovery) {
-        message('Abra esta página pelo link de recuperação enviado ao seu e-mail.', 'error');
-        return;
-      }
       supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
         auth: { detectSessionInUrl: true, persistSession: false, autoRefreshToken: false, flowType: 'implicit' }
       });
       supabaseClient.auth.onAuthStateChange((event, session) => {
-        if (event === 'PASSWORD_RECOVERY' && session) {
-          recoveryValidated = true;
-          form.hidden = false;
-          message('Link verificado. Escolha uma nova senha com pelo menos 10 caracteres.', 'ok');
+        if (cameFromRecovery && (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
+          validRecoverySession(session);
         }
       });
-      // Para retornos em que o evento já ocorreu antes do carregamento da tela.
-      const { data, error } = await supabaseClient.auth.getSession();
-      if (error) {
-        message('Não foi possível validar o link. Solicite outro e-mail de recuperação.', 'error');
+      if (linkError) {
+        otpForm.hidden = false;
+        message('O Supabase informou que esse link não pôde ser usado. Você pode entrar com um código de recuperação recebido por e-mail.', 'error');
         return;
       }
-      if (cameFromRecovery && data?.session && !recoveryValidated) {
-        recoveryValidated = true;
-        form.hidden = false;
-        message('Link verificado. Escolha uma nova senha com pelo menos 10 caracteres.', 'ok');
+      if (!cameFromRecovery) {
+        otpForm.hidden = false;
+        message('Informe abaixo o e-mail e o código de recuperação recebido. Caso ainda não tenha um código, solicite um novo e-mail.', '');
+        return;
       }
-      if (!recoveryValidated) message('O link não pôde ser validado ou expirou. Solicite outro e-mail de recuperação.', 'error');
+      message('Validando seu link de recuperação com segurança…');
+      try {
+        // O evento PASSWORD_RECOVERY pode chegar depois da primeira consulta.
+        const first = await supabaseClient.auth.getSession();
+        if (first?.data?.session) validRecoverySession(first.data.session);
+        if (!recoveryValidated) {
+          await new Promise(resolve => setTimeout(resolve, 3500));
+          const again = await supabaseClient.auth.getSession();
+          if (again?.data?.session) validRecoverySession(again.data.session);
+        }
+        if (!recoveryValidated) {
+          otpForm.hidden = false;
+          message('O link não pôde ser confirmado. Caso você tenha um código de recuperação recebido por e-mail, digite-o abaixo.', 'error');
+        }
+      } catch (_) {
+        if (!recoveryValidated) {
+          otpForm.hidden = false;
+          message('Não foi possível validar o link. Você pode tentar a recuperação pelo código enviado ao seu e-mail.', 'error');
+        }
+      }
     }
+
+    otpForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!supabaseClient || recoveryValidated) return;
+      verifyCodeButton.disabled = true;
+      message('Verificando código de recuperação…');
+      try {
+        const { data, error } = await supabaseClient.auth.verifyOtp({
+          email: recoveryEmail.value.trim(),
+          token: recoveryCode.value.trim(),
+          type: 'recovery'
+        });
+        if (error || !data?.session) throw (error || new Error('Sem sessão'));
+        recoveryCode.value = '';
+        validRecoverySession(data.session);
+      } catch (_) {
+        message('O código não pôde ser confirmado. Verifique o e-mail, use o código mais recente e confira se ele não expirou.', 'error');
+      } finally {
+        verifyCodeButton.disabled = false;
+      }
+    });
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
