@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="theme-color" content="#1747b4" />
+  <title>Redefinir senha · Rotaê</title>
+  <style>
+    :root { color-scheme: light; --blue:#1747b4; --navy:#12316c; --yellow:#ffd951; --bg:#f4f7fc; --ink:#182c4e; --muted:#63738a; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100svh; background:linear-gradient(155deg,#e8efff 0%,#f5f8fe 53%,#fbfcff 100%); color:var(--ink); font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; }
+    .wrap { width:min(100% - 32px,440px); margin:clamp(44px,9vh,110px) auto 48px; }
+    .brand { display:flex; flex-direction:column; align-items:center; gap:8px; margin-bottom:30px; }
+    .logo { display:grid; place-items:center; width:82px; height:82px; background:linear-gradient(140deg,#2865dc,#163da4); border-radius:24px; box-shadow:0 10px 28px #1747b431; }
+    .wordmark { color:#12387e; letter-spacing:.045em; font-weight:850; font-size:30px; }
+    .tagline { color:var(--muted); font-size:13px; }
+    .card { background:#fff; border:1px solid #e2e9f4; border-radius:22px; padding:clamp(24px,5vw,34px); box-shadow:0 20px 70px #223e6b12; }
+    h1 { font-size:24px; letter-spacing:-.035em; margin:0 0 8px; line-height:1.2; }
+    p { margin:0 0 20px; color:var(--muted); font-size:14px; }
+    .status { font-size:14px; padding:12px 14px; background:#eef3fb; border-radius:12px; color:#354d77; margin-bottom:18px; }
+    .status.error { color:#8a232e; background:#fff0f2; }
+    .status.ok { color:#146444; background:#e7f8f0; }
+    label { display:block; font-size:14px; font-weight:700; margin:15px 0 7px; }
+    input { width:100%; border:1px solid #c7d3e5; padding:14px 15px; border-radius:11px; font:inherit; min-height:48px; background:#fff; outline-color:var(--blue); }
+    button { cursor:pointer; background:var(--yellow); border:0; color:#1c2b40; border-radius:13px; min-height:52px; width:100%; margin-top:22px; font-size:16px; font-weight:800; }
+    button:disabled { cursor:wait; opacity:.7; }
+    .foot { text-align:center; color:var(--muted); font-size:12px; margin-top:24px; }
+    [hidden] { display:none !important; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="brand">
+      <div class="logo" aria-label="Símbolo da Rotaê">
+        <svg width="51" height="51" viewBox="0 0 64 64" aria-hidden="true" fill="none">
+          <path d="M32 5C18.2 5 8.5 15 8.5 28.4 8.5 44.7 32 58c23.5-13.3 23.5-29.6 23.5-29.6C55.5 15 45.8 5 32 5Z" fill="#FFD951"/>
+          <circle cx="32" cy="28" r="11" fill="#1747B4"/>
+          <circle cx="32" cy="28" r="5.7" fill="white"/>
+        </svg>
+      </div>
+      <div class="wordmark">ROTAÊ</div>
+      <div class="tagline">Sua entrega. Nosso caminho.</div>
+    </header>
+    <section class="card" aria-labelledby="titulo">
+      <h1 id="titulo">Criar uma nova senha</h1>
+      <p>Use o link de recuperação que chegou ao seu e-mail para proteger sua conta Rotaê.</p>
+      <div id="status" class="status" role="status" aria-live="polite">Verificando o link de recuperação…</div>
+      <form id="otp-form" hidden>
+        <p>Se o link falhar, você pode recuperar o acesso usando o código do e-mail de recuperação da Rotaê.</p>
+        <label for="recovery-email">E-mail da conta</label>
+        <input id="recovery-email" name="recovery-email" type="email" autocomplete="email" required placeholder="Seu e-mail cadastrado" />
+        <label for="recovery-code">Código de recuperação recebido no e-mail</label>
+        <input id="recovery-code" name="recovery-code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" minlength="6" maxlength="8" required placeholder="Código de 6 a 8 dígitos" />
+        <button id="verify-code" type="submit">Validar código</button>
+      </form>
+      <form id="form" hidden>
+        <label for="password">Nova senha</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="10" required placeholder="Mínimo de 10 caracteres" />
+        <label for="confirmation">Confirmar nova senha</label>
+        <input id="confirmation" name="confirmation" type="password" autocomplete="new-password" minlength="10" required placeholder="Digite a senha novamente" />
+        <button id="submit" type="submit">Salvar nova senha</button>
+      </form>
+      <p id="success" hidden>Você já pode abrir a Rotaê e entrar com seu e-mail e sua nova senha.</p>
+    </section>
+    <footer class="foot">Página de recuperação Rotaê v2 • Sua senha é enviada diretamente ao Supabase, nunca ao GitHub.</footer>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    'use strict';
+    // CONFIGURACAO PUBLICA. NUNCA COLOCAR sb_secret_, service_role OU SENHA AQUI.
+    const SUPABASE_URL = 'https://qgxtcxxizsiclrmangjx.supabase.co';
+    const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_8GaNTurif_JKbC056nDXMg_ZlV3Kn2W_';
+
+    const status = document.getElementById('status');
+    const form = document.getElementById('form');
+    const otpForm = document.getElementById('otp-form');
+    const recoveryEmail = document.getElementById('recovery-email');
+    const recoveryCode = document.getElementById('recovery-code');
+    const verifyCodeButton = document.getElementById('verify-code');
+    const submit = document.getElementById('submit');
+    const success = document.getElementById('success');
+    const password = document.getElementById('password');
+    const confirmation = document.getElementById('confirmation');
+    const fragments = new URLSearchParams(location.hash.substring(1));
+    const query = new URLSearchParams(location.search);
+    const cameFromRecovery = fragments.get('type') === 'recovery' || query.get('type') === 'recovery';
+    const linkError = fragments.get('error_description') || query.get('error_description');
+    let recoveryValidated = false;
+    let supabaseClient = null;
+
+    function message(text, kind = '') {
+      status.textContent = text;
+      status.className = `status ${kind}`.trim();
+    }
+
+    function validRecoverySession(session) {
+      if (!session || recoveryValidated) return;
+      recoveryValidated = true;
+      otpForm.hidden = true;
+      form.hidden = false;
+      message('Acesso confirmado. Escolha sua nova senha com pelo menos 10 caracteres.', 'ok');
+      // Esconder os tokens da URL depois que forem reconhecidos.
+      if (history.replaceState) history.replaceState(null, document.title, location.pathname);
+    }
+
+    async function start() {
+      if (SUPABASE_PUBLISHABLE_KEY.startsWith('COLE_AQUI_')) {
+        message('Esta página ainda precisa ser configurada com a chave pública do Supabase.', 'error');
+        return;
+      }
+      if (!window.supabase || !window.supabase.createClient) {
+        message('Não foi possível carregar a conexão de segurança. Verifique sua internet e atualize a página.', 'error');
+        return;
+      }
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+        auth: { detectSessionInUrl: true, persistSession: false, autoRefreshToken: false, flowType: 'implicit' }
+      });
+      supabaseClient.auth.onAuthStateChange((event, session) => {
+        if (cameFromRecovery && (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
+          validRecoverySession(session);
+        }
+      });
+      if (linkError) {
+        otpForm.hidden = false;
+        message('O Supabase informou que esse link não pôde ser usado. Você pode entrar com um código de recuperação recebido por e-mail.', 'error');
+        return;
+      }
+      if (!cameFromRecovery) {
+        otpForm.hidden = false;
+        message('Informe abaixo o e-mail e o código de recuperação recebido. Caso ainda não tenha um código, solicite um novo e-mail.', '');
+        return;
+      }
+      message('Validando seu link de recuperação com segurança…');
+      try {
+        // O evento PASSWORD_RECOVERY pode chegar depois da primeira consulta.
+        const first = await supabaseClient.auth.getSession();
+        if (first?.data?.session) validRecoverySession(first.data.session);
+        if (!recoveryValidated) {
+          await new Promise(resolve => setTimeout(resolve, 3500));
+          const again = await supabaseClient.auth.getSession();
+          if (again?.data?.session) validRecoverySession(again.data.session);
+        }
+        if (!recoveryValidated) {
+          otpForm.hidden = false;
+          message('O link não pôde ser confirmado. Caso você tenha um código de recuperação recebido por e-mail, digite-o abaixo.', 'error');
+        }
+      } catch (_) {
+        if (!recoveryValidated) {
+          otpForm.hidden = false;
+          message('Não foi possível validar o link. Você pode tentar a recuperação pelo código enviado ao seu e-mail.', 'error');
+        }
+      }
+    }
+
+    otpForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!supabaseClient || recoveryValidated) return;
+      verifyCodeButton.disabled = true;
+      message('Verificando código de recuperação…');
+      try {
+        const { data, error } = await supabaseClient.auth.verifyOtp({
+          email: recoveryEmail.value.trim(),
+          token: recoveryCode.value.trim(),
+          type: 'recovery'
+        });
+        if (error || !data?.session) throw (error || new Error('Sem sessão'));
+        recoveryCode.value = '';
+        validRecoverySession(data.session);
+      } catch (_) {
+        message('O código não pôde ser confirmado. Verifique o e-mail, use o código mais recente e confira se ele não expirou.', 'error');
+      } finally {
+        verifyCodeButton.disabled = false;
+      }
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!recoveryValidated || !supabaseClient) return;
+      if (password.value.length < 10) {
+        message('A nova senha precisa ter pelo menos 10 caracteres.', 'error');
+        return;
+      }
+      if (password.value !== confirmation.value) {
+        message('As duas senhas não são iguais.', 'error');
+        return;
+      }
+      submit.disabled = true;
+      message('Salvando sua nova senha…');
+      try {
+        const { error } = await supabaseClient.auth.updateUser({ password: password.value });
+        if (error) throw error;
+        password.value = '';
+        confirmation.value = '';
+        form.hidden = true;
+        success.hidden = false;
+        message('Sua senha foi alterada com sucesso!', 'ok');
+        await supabaseClient.auth.signOut({ scope: 'local' });
+      } catch (_) {
+        message('Não foi possível alterar a senha. Confira se o link ainda está válido e tente novamente.', 'error');
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    start().catch(() => message('Não foi possível validar o link agora. Tente novamente em instantes.', 'error'));
+  </script>
+</body>
+</html>
